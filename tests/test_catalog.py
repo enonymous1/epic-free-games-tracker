@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from epic_free_games_tracker.catalog import (
-    filter_games,
     filter_records,
+    format_price,
     game_to_record,
     slugify,
     store_url_for,
@@ -15,7 +15,14 @@ from epic_free_games_tracker.models import Game
 
 def test_slugify_strips_punctuation() -> None:
     assert slugify("LISA: The Definitive Edition") == "lisa-the-definitive-edition"
-    assert slugify("Them's Fightin' Herds") == "them-s-fightin-herds"
+    # Apostrophes are dropped, not hyphenated, matching Epic's slugs.
+    assert slugify("Them's Fightin' Herds") == "thems-fightin-herds"
+    assert slugify("Café Racer") == "cafe-racer"
+
+
+def test_format_price_other_currency_uses_code() -> None:
+    assert format_price(2499) == "$24.99"
+    assert format_price(2499, "EUR") == "EUR 24.99"
 
 
 def test_store_url_uses_url_slug_even_when_hash(
@@ -68,21 +75,30 @@ def test_discount_percentage_computed_from_prices(
 
 
 def test_filters(sample_games: list[Game]) -> None:
-    assert [g.title for g in filter_games(sample_games, kind="all")] == [
+    records = to_records(sample_games)
+    assert [r.title for r in filter_records(records, kind="all")] == [
         "Example Quest",
         "Example Racer 2",
         "Example: No Promotion Edition",
     ]
-    assert [g.title for g in filter_games(sample_games, kind="free")] == [
+    assert [r.title for r in filter_records(records, kind="free")] == [
         "Example Quest",
         "Example Racer 2",
     ]
-    assert [g.title for g in filter_games(sample_games, kind="bundle")] == [
+    assert [r.title for r in filter_records(records, kind="bundle")] == [
         "Example: No Promotion Edition"
     ]
-    assert filter_games(sample_games, kind="discounted") == []
+    assert filter_records(records, kind="discounted") == []
     with pytest.raises(ValueError):
-        filter_games(sample_games, kind="bogus")
+        filter_records(records, kind="bogus")  # type: ignore[arg-type]
+
+
+def test_to_dict_matches_csv_fields(sample_games: list[Game]) -> None:
+    from epic_free_games_tracker.catalog import CSV_FIELDS
+
+    record = game_to_record(sample_games[0])
+    assert list(record.to_dict().keys()) == CSV_FIELDS
+    assert "upcoming_free" not in record.to_dict()
 
 
 def test_filter_records_free_uses_promotion_rules(

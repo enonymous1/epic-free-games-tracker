@@ -1,5 +1,71 @@
 # Changelog
 
+## 2.0.1 — 2026-10-31
+
+Staff-review fixes (see the review file delivered with v2.0.0).
+No behaviour change for a normal run except where noted.
+
+### Fixed
+
+- Default output/debug paths are now relative to the current
+  working directory (`./output/epic_free_games.csv`,
+  `./debug_logs/`), not to the installed package. A wheel
+  install previously wrote into (or failed on) the Python tree.
+- CSV history is written atomically (temp file + `os.replace`)
+  and de-duplication compares against the *latest* row per id,
+  not the first: a price returning to a previously seen value
+  now adds a row again, and a failed run leaves the old file
+  intact.
+- Errors go to stderr (not stdout) and a CSV save failure now
+  exits 1 with a clean message instead of a traceback.
+- Feed text is escaped before Rich rendering, so a title
+  containing markup prints literally instead of breaking a
+  panel. Promotion dates are labelled UTC, and `date_found`
+  and debug timestamps are UTC ISO-8601.
+- The client retries 429 (honouring `Retry-After`) as well as
+  5xx, with jittered backoff; retry sleeps are injectable for
+  tests.
+- `slugify` drops apostrophes (`Them's` -> `thems`, matching
+  Epic's slugs) and folds non-ASCII letters instead of
+  hyphenating them.
+- A non-dict `Catalog`/`searchStore` now raises a validation
+  error the CLI reports cleanly, instead of an uncaught
+  `AttributeError`.
+
+### Changed
+
+- `filter_games` (model-level) is removed: convert once with
+  `to_records`, then filter records with `filter_records`.
+  `OfferRecord.to_dict()` is derived from `CSV_FIELDS`, so the
+  CSV schema cannot drift from the record.
+- `price_type` and `status` are now `Literal` types, and all
+  feed models share an `EpicBaseModel` (aliases + ignore
+  unknowns). `EpicResponse` is fully typed instead of a
+  `dict` traversal, and `seller`/`categories`/`tags` are typed
+  models.
+- Version is now single-source: `pyproject.toml` reads it from
+  `epic_free_games_tracker.__version__`. Dependency bounds
+  gain upper limits; `pytest-cov` joins the dev extras.
+- Ruff now selects `S`, `SIM`, and `D` (with an explicit
+  `py310` target) and mypy checks `src` and `tests`. CI is
+  split into a single lint job, a test matrix with a coverage
+  gate (80%), and a weekly scheduled live smoke check.
+- README rewritten with Description, Prerequisites,
+  Installation, Local Development, and Deployment sections,
+  plus `docs/assets/` visuals (architecture SVG, terminal
+  SVG from a real sample run, CSV-history image, demo GIF)
+  and `docs/architecture.md` as the diagram source.
+
+### Known limitations (unchanged, documented)
+
+- `NO_PROXY` is still not honoured: when a proxy is set, it
+  is used for the feed host too.
+- The record still carries parsed structures only at the
+  store boundary: `images`/`categories`/`tags`/`discount_rules`
+  are JSON strings inside the CSV, re-parsed on display.
+- No `Settings`/`App` split, JSON renderer, or SQLite/JSONL
+  store yet — those are the next step, not this release.
+
 ## 2.0.0 — 2026-10-27
 
 Rebuilt from the original `WebScraping` project (Epic Games Store free-games

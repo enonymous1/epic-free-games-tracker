@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="340" viewBox="0 0 920 340" font-family="system-ui, sans-serif" font-size="13">
+  <rect width="920" height="340" fill="#ffffff"/>
+  <g fill="none" stroke="#334155" stroke-width="1.5">
+    <path d="M118 95 H150 M118 235 H150"/>
+    <path d="M310 165 H340 M470 165 H500 M640 110 H670 M640 215 H670"/>
+    <path d="M790 110 H820 M790 215 H820"/>
+  </g>
+  <g>
+    <rect x="10" y="70" width="108" height="52" rx="8" fill="#e0f2fe" stroke="#0284c7"/>
+    <text x="64" y="92" text-anchor="middle">Epic feed</text>
+    <text x="64" y="110" text-anchor="middle">(public JSON)</text>
+    <rect x="10" y="210" width="108" height="52" rx="8" fill="#e0f2fe" stroke="#0284c7"/>
+    <text x="64" y="232" text-anchor="middle">Sample payload</text>
+    <text x="64" y="250" text-anchor="middle">(fictional)</text>
+    <rect x="150" y="130" width="160" height="72" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="230" y="154" text-anchor="middle" font-weight="700">EpicStoreClient</text>
+    <text x="230" y="172" text-anchor="middle">client.py — retries,</text>
+    <text x="230" y="190" text-anchor="middle">debug save</text>
+    <rect x="340" y="130" width="130" height="72" rx="8" fill="#fef9c3" stroke="#ca8a04"/>
+    <text x="405" y="154" text-anchor="middle" font-weight="700">Models</text>
+    <text x="405" y="172" text-anchor="middle">models.py</text>
+    <text x="405" y="190" text-anchor="middle">Pydantic</text>
+    <rect x="500" y="130" width="140" height="72" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="570" y="154" text-anchor="middle" font-weight="700">Catalog</text>
+    <text x="570" y="172" text-anchor="middle">catalog.py — records,</text>
+    <text x="570" y="190" text-anchor="middle">filters, prices, URLs</text>
+    <rect x="670" y="70" width="120" height="72" rx="8" fill="#ffedd5" stroke="#ea580c"/>
+    <text x="730" y="94" text-anchor="middle" font-weight="700">Store</text>
+    <text x="730" y="112" text-anchor="middle">store.py — CSV,</text>
+    <text x="730" y="130" text-anchor="middle">atomic + dedup</text>
+    <rect x="670" y="210" width="120" height="72" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="730" y="234" text-anchor="middle" font-weight="700">Display</text>
+    <text x="730" y="252" text-anchor="middle">display.py — Rich</text>
+    <text x="730" y="270" text-anchor="middle">panels</text>
+    <rect x="820" y="70" width="90" height="72" rx="8" fill="#f1f5f9" stroke="#475569"/>
+    <text x="865" y="94" text-anchor="middle">CSV history</text>
+    <text x="865" y="112" text-anchor="middle">output/</text>
+    <text x="865" y="130" text-anchor="middle">*.csv</text>
+    <rect x="820" y="210" width="90" height="72" rx="8" fill="#f1f5f9" stroke="#475569"/>
+    <text x="865" y="242" text-anchor="middle">Terminal</text>
+  </g>
+  <text x="460" y="320" text-anchor="middle" fill="#475569">cli.py parses arguments only; it calls client, catalog, store, and display in that order.</text>
+</svg>

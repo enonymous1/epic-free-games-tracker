@@ -67,7 +67,10 @@ def test_cli_missing_input_file_returns_1(
 ) -> None:
     code = main(["--input", "does-not-exist.json", "--no-save"])
     assert code == 1
-    assert "Error fetching games" in capsys.readouterr().out
+    # Errors go to stderr, so a piped stdout stays clean.
+    captured = capsys.readouterr()
+    assert "Error fetching games" in captured.err
+    assert "Error fetching games" not in captured.out
 
 
 def test_cli_empty_feed_returns_0(
@@ -80,4 +83,34 @@ def test_cli_empty_feed_returns_0(
     )
     code = main(["--input", str(empty), "--no-save"])
     assert code == 0
-    assert "No games found" in capsys.readouterr().out
+    assert "No games found" in capsys.readouterr().err
+
+
+def test_python_m_module_runs() -> None:
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "epic_free_games_tracker",
+            "--input",
+            str(_sample_path()),
+            "--no-save",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "Example Quest" in result.stdout
+
+
+def test_cli_default_csv_is_under_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    code = main(["--input", str(_sample_path())])
+    assert code == 0
+    assert (tmp_path / "output" / "epic_free_games.csv").exists()

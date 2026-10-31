@@ -66,6 +66,32 @@ def test_older_csv_missing_columns_does_not_crash(
     assert len(_read(csv_path)) == 4
 
 
+def test_price_returning_to_old_value_adds_a_row(
+    sample_games: list[Game], tmp_path: Path
+) -> None:
+    # Dedup compares against the *latest* row per id, not the first:
+    # $24.99 -> $19.99 -> $24.99 is three history rows, not two.
+    import dataclasses
+
+    csv_path = tmp_path / "games.csv"
+    records = to_records(sample_games)
+    save_records(records, csv_path)
+    cheaper = dataclasses.replace(records[0], original_price="$19.99")
+    _, added = save_records([cheaper], csv_path)
+    assert added == 1
+    _, added = save_records([records[0]], csv_path)
+    assert added == 1
+    assert len(_read(csv_path)) == 5
+
+
+def test_no_temp_files_left_after_save(
+    sample_games: list[Game], tmp_path: Path
+) -> None:
+    csv_path = tmp_path / "games.csv"
+    save_records(to_records(sample_games), csv_path)
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
 def test_empty_records_write_nothing(tmp_path: Path) -> None:
     csv_path = tmp_path / "games.csv"
     _, added = save_records([], csv_path)

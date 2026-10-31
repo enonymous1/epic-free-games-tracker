@@ -1,10 +1,14 @@
 """Conversion from feed models to flat offer records, plus filtering.
 
-This keeps the richest field set from the original tracker (35 CSV
-columns) while fixing the bugs found in the audit:
+Why the record is flat: the CSV store needs one row per game, so
+nested feed data (images, categories, discount rules) is serialised
+to JSON strings here and only here. Display re-parses those strings;
+that is a known cost of the CSV format, not a second data model.
 
-* Store URLs come from the feed's ``urlSlug``. That value is sometimes a
-  hash, which is a valid store slug; building a slug from the title
+Feed quirks fixed here, with regression tests for each:
+
+* Store URLs come from the feed's ``urlSlug``. That value is sometimes
+  a hash, which is a valid store slug; building a slug from the title
   produced broken URLs such as ``lisa:-the-definitive-edition``.
 * The discount percentage shown is computed from the prices, not copied
   from a promotion's ``discountSetting``. The feed reports 0% there for
@@ -20,10 +24,18 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Literal
 
 from .models import Game
+
+STORE_BASE_URL = "https://store.epicgames.com/en-US/p"
+
+PriceType = Literal["free", "discounted", "paid", "unknown"]
+PromotionStatus = Literal["Available Now", "Coming Soon", "No promotion"]
+FilterKind = Literal["all", "free", "bundle", "discounted"]
 
 CSV_FIELDS: list[str] = [
     "title",
@@ -61,13 +73,29 @@ CSV_FIELDS: list[str] = [
 
 
 def slugify(text: str) -> str:
-    """Lowercase slug with punctuation (including ``:``) as hyphens."""
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug
+    """Lowercase slug for a title, used only as a URL fallback.
+
+    Apostrophes are dropped, not hyphenated (``Them's`` -> ``thems``,
+    matching Epic's own slugs), and non-ASCII letters are folded to
+    ASCII (``Café`` -> ``cafe``) instead of becoming hyphens.
+    """
+    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    folded = folded.replace("'", "")
+    return re.sub(r"[^a-z0-9]+", "-", folded.lower()).strip("-")
 
 
-def format_price(cents: int) -> str:
-    return f"${cents / 100:.2f}"
+def format_price(cents: int, currency_code: str = "USD") -> str:
+    """Format minor units (cents for USD) as a display price.
+
+    USD keeps the familiar ``$`` form that existing CSV readers and
+    tests expect. Other currencies are prefixed with their code
+    instead of a wrong ``$`` sign; a decimals-aware format is a
+    future change, not a silent guess here.
+    """
+    amount = f"{cents / 100:.2f}"
+    if currency_code == "USD":
+        return f"${amount}"
+    return f"{currency_code} {amount}"
 
 
 def store_url_for(game: Game) -> str:
@@ -81,10 +109,17 @@ def store_url_for(game: Game) -> str:
         slug = game.product_slug.split("/", 1)[0]
     if not slug:
         slug = slugify(game.title)
-    return f"https://store.epicgames.com/en-US/p/{slug}"
+    return f"{STORE_BASE_URL}/{slug}"
 
 
 def main_image_url(game: Game) -> str:
+    """First usable hero image, preferring the wide banner.
+
+    Epic returns many image types per game (tall, wide, thumbnail,
+    carousel, featured media). Only ``OfferImageWide`` and
+    ``Thumbnail`` are stable enough for a terminal panel; anything
+    else is noise for this display.
+    """
     for image in game.key_images:
         if image.type in ("OfferImageWide", "Thumbnail"):
             return image.url
@@ -105,13 +140,13 @@ class OfferRecord:
     discount_price: str
     currency_code: str
     discount_percentage: float
-    price_type: str
+    price_type: PriceType
     effective_date: str
     viewable_date: str
     expiry_date: str
     start_date: str
     end_date: str
-    status: str
+    status: PromotionStatus
     offer_type: str
     is_bundle: bool
     bundle_items: int
@@ -125,52 +160,36 @@ class OfferRecord:
     custom_attributes: str
     all_categories: str
     all_tags: str
-    date_found: str = field(default_factory=lambda: datetime.now().isoformat())
+    date_found: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
     # Display/filtering only; not a CSV column.
     upcoming_free: bool = False
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            "title": self.title,
-            "id": self.id,
-            "namespace": self.namespace,
-            "description": self.description,
-            "developer": self.developer,
-            "developer_id": self.developer_id,
-            "original_price": self.original_price,
-            "discount_price": self.discount_price,
-            "currency_code": self.currency_code,
-            "discount_percentage": self.discount_percentage,
-            "price_type": self.price_type,
-            "effective_date": self.effective_date,
-            "viewable_date": self.viewable_date,
-            "expiry_date": self.expiry_date,
-            "start_date": self.start_date,
-            "end_date": self.end_date,
-            "status": self.status,
-            "offer_type": self.offer_type,
-            "is_bundle": self.is_bundle,
-            "bundle_items": self.bundle_items,
-            "store_url": self.store_url,
-            "product_slug": self.product_slug,
-            "thumbnail": self.thumbnail,
-            "images": self.images,
-            "categories": self.categories,
-            "tags": self.tags,
-            "discount_rules": self.discount_rules,
-            "custom_attributes": self.custom_attributes,
-            "all_categories": self.all_categories,
-            "all_tags": self.all_tags,
-            "date_found": self.date_found,
-        }
+        """CSV row, derived from ``CSV_FIELDS`` so it cannot drift.
+
+        ``CSV_FIELDS`` is the single source of truth for columns;
+        adding a field to the record without adding it here (or
+        vice versa) is impossible by construction. ``upcoming_free``
+        is deliberately absent: it is not in ``CSV_FIELDS``.
+        """
+        return {name: getattr(self, name) for name in CSV_FIELDS}
 
 
 def _iso(value: datetime | None) -> str:
+    """ISO-8601 string, or ``""`` for a missing date."""
     return value.isoformat() if value is not None else ""
 
 
-def _promotion_status(game: Game) -> tuple[str, str, str]:
-    """(status, start_date, end_date) from current, then upcoming, promos."""
+def _promotion_status(game: Game) -> tuple[PromotionStatus, str, str]:
+    """(status, start_date, end_date) from current, then upcoming, promos.
+
+    Display choice, not a "next ending" calculation: current offers
+    win over upcoming, and the first offer in each list wins. If an
+    ending-soon view is ever built, it needs a real selection rule
+    (e.g. earliest end date among active offers), not this helper.
+    """
     if game.promotions is not None:
         for promo_list, status in (
             (game.promotions.promotional_offers, "Available Now"),
@@ -180,7 +199,7 @@ def _promotion_status(game: Game) -> tuple[str, str, str]:
                 if promo_data.promotional_offers:
                     offer = promo_data.promotional_offers[0]
                     return (
-                        status,
+                        status,  # type: ignore[return-value]
                         offer.start_date.isoformat(),
                         offer.end_date.isoformat(),
                     )
@@ -188,6 +207,12 @@ def _promotion_status(game: Game) -> tuple[str, str, str]:
 
 
 def _discount_rules(game: Game) -> str:
+    """Raw promotion settings as a JSON string, for the CSV column.
+
+    These are the feed's settings, not the effective discount (see
+    the module docstring). They are kept verbatim so a reader can
+    see what Epic reported, separate from the computed percentage.
+    """
     rules: list[dict[str, object]] = []
     if game.promotions is not None:
         for promo_list in (
@@ -212,7 +237,7 @@ def _discount_rules(game: Game) -> str:
 
 def game_to_record(game: Game, *, date_found: str | None = None) -> OfferRecord:
     """Convert one validated feed element to a flat record."""
-    seller = game.seller or {}
+    seller = game.seller
     if game.price is not None:
         total = game.price.total_price
         original = total.original_price
@@ -222,13 +247,13 @@ def game_to_record(game: Game, *, date_found: str | None = None) -> OfferRecord:
             round((original - discount) / original * 100, 2) if original > 0 else 0.0
         )
         if discount == 0:
-            price_type = "free"
+            price_type: PriceType = "free"
         elif percentage > 0:
             price_type = "discounted"
         else:
             price_type = "paid"
-        original_price = format_price(original)
-        discount_price = format_price(discount)
+        original_price = format_price(original, currency)
+        discount_price = format_price(discount, currency)
     else:
         currency = "USD"
         percentage = 0.0
@@ -245,8 +270,8 @@ def game_to_record(game: Game, *, date_found: str | None = None) -> OfferRecord:
         id=game.id,
         namespace=game.namespace,
         description=game.description or "",
-        developer=str(seller.get("name", "Unknown Developer")),
-        developer_id=str(seller.get("id", "")),
+        developer=seller.name if seller and seller.name else "Unknown Developer",
+        developer_id=seller.id if seller and seller.id else "",
         original_price=original_price,
         discount_price=discount_price,
         currency_code=currency,
@@ -265,27 +290,32 @@ def game_to_record(game: Game, *, date_found: str | None = None) -> OfferRecord:
         product_slug=game.product_slug or "",
         thumbnail=main_image_url(game),
         images=json.dumps(images),
-        categories=json.dumps([cat.get("path", "") for cat in game.categories if cat]),
-        tags=json.dumps([tag.get("id", "") for tag in game.tags if tag]),
+        categories=json.dumps([cat.path for cat in game.categories]),
+        tags=json.dumps([tag.id for tag in game.tags]),
         discount_rules=_discount_rules(game),
         custom_attributes=json.dumps(game.custom_attributes),
-        all_categories=json.dumps(game.categories),
-        all_tags=json.dumps(game.tags),
-        date_found=date_found or datetime.now().isoformat(),
+        all_categories=json.dumps([{"path": cat.path} for cat in game.categories]),
+        all_tags=json.dumps([{"id": tag.id} for tag in game.tags]),
+        date_found=date_found or datetime.now(timezone.utc).isoformat(),
         upcoming_free=game.is_upcoming_free(),
     )
 
 
 def to_records(games: list[Game]) -> list[OfferRecord]:
+    """Convert every validated game to a record, in feed order."""
     return [game_to_record(game) for game in games]
 
 
-def filter_records(records: list[OfferRecord], *, kind: str) -> list[OfferRecord]:
-    """Filter by ``all`` / ``free`` / ``bundle`` / ``discounted``.
+def filter_records(
+    records: list[OfferRecord], *, kind: FilterKind
+) -> list[OfferRecord]:
+    """Filter records by kind; the single filter entry point.
 
     ``free`` means currently free or upcoming-free, matching the
     original tracker's default. Unknown ``kind`` values are a caller
-    error, not a silent empty result.
+    error, not a silent empty result. There is deliberately no
+    parallel model-level filter: convert once, then filter records,
+    so "free" is defined in exactly one place.
     """
     if kind == "all":
         return list(records)
@@ -293,7 +323,7 @@ def filter_records(records: list[OfferRecord], *, kind: str) -> list[OfferRecord
         return [
             record
             for record in records
-            if record.price_type == "free" or _is_upcoming_free_record(record)
+            if record.price_type == "free" or record.upcoming_free
         ]
     if kind == "bundle":
         return [record for record in records if record.is_bundle]
@@ -303,24 +333,4 @@ def filter_records(records: list[OfferRecord], *, kind: str) -> list[OfferRecord
             for record in records
             if record.discount_percentage > 0 and record.price_type != "free"
         ]
-    raise ValueError(f"unknown filter kind: {kind!r}")
-
-
-def _is_upcoming_free_record(record: OfferRecord) -> bool:
-    """Upcoming-free, as recorded at conversion time."""
-    return record.upcoming_free
-
-
-def filter_games(games: list[Game], *, kind: str) -> list[Game]:
-    """Filter validated games before conversion (free needs model data)."""
-    if kind == "all":
-        return list(games)
-    if kind == "free":
-        return [game for game in games if game.is_free() or game.is_upcoming_free()]
-    if kind == "bundle":
-        return [game for game in games if game.offer_type == "BUNDLE"]
-    if kind == "discounted":
-        records = to_records(games)
-        kept_ids = {record.id for record in filter_records(records, kind="discounted")}
-        return [game for game in games if game.id in kept_ids]
     raise ValueError(f"unknown filter kind: {kind!r}")
